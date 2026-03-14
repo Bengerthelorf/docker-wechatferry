@@ -30,5 +30,9 @@ for dll in sdk.dll spy.dll; do
     fi
 done
 
+# Block WeChat auto-update domains
+echo "127.0.0.1 dldir1.qq.com" >> /etc/hosts 2>/dev/null || true
+echo "127.0.0.1 dldir1v6.qq.com" >> /etc/hosts 2>/dev/null || true
+
 echo "Starting supervisord..."
 exec "$@"

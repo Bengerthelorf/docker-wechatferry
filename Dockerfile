@@ -138,9 +138,8 @@ RUN chmod +x /opt/scripts/*.sh
 COPY supervisord.conf /etc/supervisor/conf.d/wcf.conf
 
 # ── Block WeChat auto-update ──────────────────────────────────────────────────
-# Prevent WeChat from phoning home for updates
-RUN echo "127.0.0.1 dldir1.qq.com" >> /etc/hosts && \
-    echo "127.0.0.1 dldir1v6.qq.com" >> /etc/hosts
+# /etc/hosts is read-only during build; block updates at runtime via entrypoint
+# See scripts/entrypoint.sh for the hosts block
 
 # ── Ports ─────────────────────────────────────────────────────────────────────
 EXPOSE ${WCF_PORT} ${VNC_PORT} ${NOVNC_PORT}
