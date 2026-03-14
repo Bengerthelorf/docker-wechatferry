@@ -68,27 +68,29 @@ RUN mkdir -pm755 /etc/apt/keyrings && \
 # ── Initialize WINEPREFIX ─────────────────────────────────────────────────────
 RUN Xvfb :1 -screen 0 1024x768x16 & \
     sleep 2 && \
-    WINEDLLOVERRIDES="mscoree,mshtml=" wine64 wineboot --init && \
+    WINEDLLOVERRIDES="mscoree,mshtml=" wine wineboot --init && \
     wineserver --wait && \
     kill %1 2>/dev/null; true
 
-# ── Download and install WeChat 3.9.12.17 ────────────────────────────────────
+# ── Install WeChat 3.9.12.17 via 7z extraction (NSIS silent install unreliable under Wine) ──
+RUN apt-get update && apt-get install -y --no-install-recommends p7zip-full && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN set -e && \
     echo "Downloading WeChat ${WECHAT_VERSION}..." && \
     curl -fsSL -o /tmp/WeChatSetup.exe "${WECHAT_URL}" && \
     echo "Verifying SHA256..." && \
     echo "${WECHAT_SHA256}  /tmp/WeChatSetup.exe" | sha256sum -c - && \
     echo "SHA256 OK" && \
-    Xvfb :1 -screen 0 1024x768x16 & \
-    sleep 2 && \
-    # WeChat NSIS installer: /S for silent
-    wine64 /tmp/WeChatSetup.exe /S && \
-    wineserver --wait && \
-    kill %1 2>/dev/null; true && \
-    rm -f /tmp/WeChatSetup.exe && \
+    cd /tmp && 7z x -owechat_extract WeChatSetup.exe -y && \
+    mkdir -p "${WINEPREFIX}/drive_c/Program Files/Tencent/WeChat" && \
+    cp -r /tmp/wechat_extract/* "${WINEPREFIX}/drive_c/Program Files/Tencent/WeChat/" && \
+    if [ -d "/tmp/wechat_extract/[${WECHAT_VERSION}]" ]; then \
+        cp -r "/tmp/wechat_extract/[${WECHAT_VERSION}]/"* "${WINEPREFIX}/drive_c/Program Files/Tencent/WeChat/"; \
+    fi && \
+    rm -rf /tmp/WeChatSetup.exe /tmp/wechat_extract && \
     echo "WeChat installed." && \
-    # Show where it was installed
-    find "${WINEPREFIX}/drive_c" -name "WeChat.exe" -o -name "WeChatWin.dll" 2>/dev/null || true
+    ls -la "${WINEPREFIX}/drive_c/Program Files/Tencent/WeChat/WeChat.exe"
 
 # ── Copy pre-built WeChatFerry DLLs ──────────────────────────────────────────
 COPY dlls/sdk.dll dlls/spy.dll /opt/wcf-sdk/

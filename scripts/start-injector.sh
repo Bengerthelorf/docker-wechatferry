@@ -60,4 +60,5 @@ cd "${WECHAT_DIR}"
 # 1. Load sdk.dll
 # 2. Call WxInitSDK which starts WeChat and injects spy.dll
 # 3. spy.dll starts NNG server on port ${NNG_PORT} and ${NNG_PORT}+1
-exec wine64 "${WECHAT_DIR}/injector.exe" "${NNG_PORT}"
+WINE_CMD=$(command -v wine64 2>/dev/null || command -v wine)
+exec "${WINE_CMD}" "${WECHAT_DIR}/injector.exe" "${NNG_PORT}"
