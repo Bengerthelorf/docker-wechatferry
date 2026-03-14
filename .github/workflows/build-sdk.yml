@@ -80,6 +80,9 @@ jobs:
               # 2) Upgrade PlatformToolset from v142 to v143 (VS 2022 on windows-latest)
               $content = $content -replace '<PlatformToolset>v142</PlatformToolset>', '<PlatformToolset>v143</PlatformToolset>'
 
+              # 3) Add magic_enum subfolder to include paths (newer vcpkg puts headers there)
+              $content = $content -replace '(C:\\Tools\\vcpkg\\installed\\x64-windows-static\\include)', '$1;C:\Tools\vcpkg\installed\x64-windows-static\include\magic_enum'
+
               Set-Content $f $content
               Write-Host "Patched $f"
             }
@@ -109,7 +112,8 @@ jobs:
           $inc = "C:\Tools\vcpkg\installed\x64-windows-static\include"
           Write-Host "=== vcpkg include directory ==="
           Get-ChildItem $inc -ErrorAction SilentlyContinue | Select-Object Name
-          foreach ($h in @("magic_enum.hpp", "nng\nng.h", "spdlog\spdlog.h", "MinHook.h")) {
+          # magic_enum installs under magic_enum/ subfolder in newer vcpkg
+          foreach ($h in @("magic_enum\magic_enum.hpp", "nng\nng.h", "spdlog\spdlog.h", "MinHook.h")) {
             $p = Join-Path $inc $h
             if (Test-Path $p) { Write-Host "OK: $h" }
             else { Write-Host "MISSING: $h"; exit 1 }
