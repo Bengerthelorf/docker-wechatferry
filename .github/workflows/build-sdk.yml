@@ -96,7 +96,7 @@ jobs:
             git clone https://github.com/microsoft/vcpkg.git C:\Tools\vcpkg
             C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           }
-          C:\Tools\vcpkg\vcpkg.exe install nng:x64-windows-static magic-enum:x64-windows-static --recurse
+          C:\Tools\vcpkg\vcpkg.exe install nng:x64-windows-static magic-enum:x64-windows-static spdlog:x64-windows-static minhook:x64-windows-static --recurse
         shell: pwsh
 
       - name: Set up MSBuild
