@@ -14,14 +14,13 @@ permissions:
 jobs:
   build-sdk:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout docker-wechatferry
         uses: actions/checkout@v4
 
       - name: Clone KeJunMao/WeChatFerry
-        run: |
-          git clone --depth=1 https://github.com/KeJunMao/WeChatFerry WeChatFerry-src
+        run: git clone --depth=1 https://github.com/KeJunMao/WeChatFerry WeChatFerry-src
         shell: pwsh
 
       - name: Set up Python
@@ -29,16 +28,56 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies (grpcio-tools for protoc)
-        run: |
-          pip install grpcio-tools
+      - name: Install Python dependencies
+        run: pip install grpcio-tools protobuf
         shell: pwsh
+
+      # ── Generate protobuf files BEFORE MSBuild ────────────────────────────
+      # nanopb's bundled protoc script uses grpcio-tools and needs the
+      # protoc-gen-nanopb plugin on PATH. We add the tool dir to PATH and
+      # run it explicitly, then patch the .vcxproj pre-build events so
+      # MSBuild doesn't re-run (and potentially fail) the step.
+      - name: Generate wcf.pb.c / wcf.pb.h (nanopb)
+        run: |
+          $toolDir = "WeChatFerry-src\WeChatFerry\rpc\tool"
+          $protoDir = "WeChatFerry-src\WeChatFerry\rpc\proto"
+
+          # Add tool dir to PATH so protoc can find protoc-gen-nanopb.bat
+          $env:PATH = "$($PWD)\$toolDir;$env:PATH"
+
+          Push-Location $protoDir
+          # Run nanopb protoc: generates wcf.pb.c and wcf.pb.h
+          python "..\tool\protoc" "--nanopb_out=." wcf.proto
+          Write-Host "Generated files:"
+          Get-ChildItem . | Select-Object Name
+          Pop-Location
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+
+      - name: Patch vcxproj — disable pre-build protoc events
+        # Avoids double-run / failure of pre-build step during MSBuild
+        run: |
+          $files = @(
+            "WeChatFerry-src\WeChatFerry\spy\Spy.vcxproj",
+            "WeChatFerry-src\WeChatFerry\sdk\SDK.vcxproj"
+          )
+          foreach ($f in $files) {
+            if (Test-Path $f) {
+              $content = Get-Content $f -Raw
+              # Replace PreBuildEvent Command content with a no-op echo
+              $content = $content -replace '(<Command>)[^<]*(protoc[^<]*)(</Command>)', '$1echo Protoc already done$3'
+              Set-Content $f $content
+              Write-Host "Patched $f"
+            }
+          }
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
 
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: C:\Tools\vcpkg
-          key: vcpkg-nng-magic-enum-x64-windows-static-${{ runner.os }}-v2
+          key: vcpkg-nng-magic-enum-x64-windows-static-${{ runner.os }}-v3
 
       - name: Install vcpkg and dependencies
         run: |
@@ -50,20 +89,12 @@ jobs:
           C:\Tools\vcpkg\vcpkg.exe install nng:x64-windows-static magic-enum:x64-windows-static --recurse
         shell: pwsh
 
-      - name: Set up MSVC
+      - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Build WeChatFerry (Release|x64)
         run: |
-          cd WeChatFerry-src\WeChatFerry
-          
-          # Run protoc to generate wcf.pb.c and wcf.pb.h before MSBuild
-          cd rpc\proto
-          python ..\..\rpc\tool\protoc --nanopb_out=. wcf.proto
-          cd ..\..
-          
-          # Build the full solution (spy first, then sdk)
-          msbuild WeChatFerry.sln `
+          msbuild "WeChatFerry-src\WeChatFerry\WeChatFerry.sln" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:VcpkgRoot="C:\Tools\vcpkg" `
@@ -73,48 +104,42 @@ jobs:
         shell: pwsh
         working-directory: ${{ github.workspace }}
 
-      - name: Locate build outputs
-        id: locate
+      - name: Collect and verify build outputs
+        id: collect
         run: |
-          $outDir = "WeChatFerry-src\WeChatFerry\x64\Release"
-          $sdkDll = Join-Path $outDir "sdk.dll"
-          $spyDll = Join-Path $outDir "spy.dll"
-          
-          Write-Host "Looking for DLLs in $outDir"
-          Get-ChildItem $outDir -ErrorAction SilentlyContinue | Select-Object Name, Length
-          
-          if (-not (Test-Path $sdkDll)) {
-            # Try alternate output paths
-            $sdkDll = (Get-ChildItem -Recurse -Filter "sdk.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            $spyDll = (Get-ChildItem -Recurse -Filter "spy.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-          }
-          
-          Write-Host "sdk.dll: $sdkDll"
-          Write-Host "spy.dll: $spyDll"
-          echo "SDK_DLL=$sdkDll" >> $env:GITHUB_OUTPUT
-          echo "SPY_DLL=$spyDll" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-        working-directory: ${{ github.workspace }}
+          # MSBuild outputs to x64/Release by default
+          $searchRoot = "WeChatFerry-src\WeChatFerry"
+          Write-Host "=== Searching for DLLs ==="
+          Get-ChildItem -Path $searchRoot -Recurse -Filter "*.dll" |
+            Select-Object FullName, Length
 
-      - name: Copy DLLs to release directory
-        run: |
+          $sdk = Get-ChildItem -Path $searchRoot -Recurse -Filter "sdk.dll" |
+            Select-Object -First 1 -ExpandProperty FullName
+          $spy = Get-ChildItem -Path $searchRoot -Recurse -Filter "spy.dll" |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $sdk) { throw "sdk.dll not found after build" }
+          if (-not $spy) { throw "spy.dll not found after build" }
+
+          Write-Host "sdk.dll: $sdk"
+          Write-Host "spy.dll: $spy"
+
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Copy-Item "${{ steps.locate.outputs.SDK_DLL }}" release\sdk.dll
-          Copy-Item "${{ steps.locate.outputs.SPY_DLL }}" release\spy.dll
-          
-          # Compute SHA256
+          Copy-Item $sdk release\sdk.dll
+          Copy-Item $spy release\spy.dll
+
           $sdkHash = (Get-FileHash release\sdk.dll -Algorithm SHA256).Hash.ToLower()
           $spyHash = (Get-FileHash release\spy.dll -Algorithm SHA256).Hash.ToLower()
-          
-          "$sdkHash  sdk.dll" | Out-File -Encoding ASCII release\sdk.dll.sha256
-          "$spyHash  spy.dll" | Out-File -Encoding ASCII release\spy.dll.sha256
-          
-          # Print hashes for CI log
+
+          "$sdkHash  sdk.dll`n$spyHash  spy.dll" | Set-Content -Encoding ASCII release\checksums.sha256
+          "$sdkHash  sdk.dll" | Set-Content -Encoding ASCII release\sdk.dll.sha256
+          "$spyHash  spy.dll"  | Set-Content -Encoding ASCII release\spy.dll.sha256
+
           Write-Host "sdk.dll SHA256: $sdkHash"
           Write-Host "spy.dll SHA256: $spyHash"
-          
-          # Write combined checksums file
-          "$sdkHash  sdk.dll`n$spyHash  spy.dll" | Out-File -Encoding ASCII release\checksums.sha256
+
+          echo "SDK_HASH=$sdkHash" >> $env:GITHUB_OUTPUT
+          echo "SPY_HASH=$spyHash" >> $env:GITHUB_OUTPUT
         shell: pwsh
         working-directory: ${{ github.workspace }}
 
@@ -137,18 +162,21 @@ jobs:
             release/spy.dll
             release/checksums.sha256
           body: |
-            ## WeChatFerry SDK Release
-            
-            Built from [KeJunMao/WeChatFerry](https://github.com/KeJunMao/WeChatFerry) `${{ github.ref_name }}`.
-            
-            ### Files
-            - `sdk.dll` — WeChatFerry injector SDK
-            - `spy.dll` — WeChatFerry spy DLL (injected into WeChat)
-            - `checksums.sha256` — SHA256 checksums for verification
-            
+            ## WeChatFerry SDK — ${{ github.ref_name }}
+
+            Built from [KeJunMao/WeChatFerry](https://github.com/KeJunMao/WeChatFerry).
+
+            | File | SHA256 |
+            |------|--------|
+            | `sdk.dll` | `${{ steps.collect.outputs.SDK_HASH }}` |
+            | `spy.dll` | `${{ steps.collect.outputs.SPY_HASH }}` |
+
             ### Verify
             ```bash
             sha256sum -c checksums.sha256
             ```
+
+            ### Usage
+            Place `sdk.dll` and `spy.dll` in the same directory, then call `WxInitSDK(port)`.
           draft: false
           prerelease: false
