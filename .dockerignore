@@ -1,0 +1,5 @@
+.git
+.github
+*.md
+node_modules
+WeChatFerry-src

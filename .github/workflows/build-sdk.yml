@@ -1,0 +1,154 @@
+name: Build WeChatFerry SDK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-sdk:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout docker-wechatferry
+        uses: actions/checkout@v4
+
+      - name: Clone KeJunMao/WeChatFerry
+        run: |
+          git clone --depth=1 https://github.com/KeJunMao/WeChatFerry WeChatFerry-src
+        shell: pwsh
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies (grpcio-tools for protoc)
+        run: |
+          pip install grpcio-tools
+        shell: pwsh
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\Tools\vcpkg
+          key: vcpkg-nng-magic-enum-x64-windows-static-${{ runner.os }}-v2
+
+      - name: Install vcpkg and dependencies
+        run: |
+          if (-not (Test-Path "C:\Tools\vcpkg")) {
+            New-Item -ItemType Directory -Force -Path "C:\Tools" | Out-Null
+            git clone https://github.com/microsoft/vcpkg.git C:\Tools\vcpkg
+            C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          }
+          C:\Tools\vcpkg\vcpkg.exe install nng:x64-windows-static magic-enum:x64-windows-static --recurse
+        shell: pwsh
+
+      - name: Set up MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build WeChatFerry (Release|x64)
+        run: |
+          cd WeChatFerry-src\WeChatFerry
+          
+          # Run protoc to generate wcf.pb.c and wcf.pb.h before MSBuild
+          cd rpc\proto
+          python ..\..\rpc\tool\protoc --nanopb_out=. wcf.proto
+          cd ..\..
+          
+          # Build the full solution (spy first, then sdk)
+          msbuild WeChatFerry.sln `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:VcpkgRoot="C:\Tools\vcpkg" `
+            /p:VCPKG_ROOT="C:\Tools\vcpkg" `
+            /m `
+            /v:minimal
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+
+      - name: Locate build outputs
+        id: locate
+        run: |
+          $outDir = "WeChatFerry-src\WeChatFerry\x64\Release"
+          $sdkDll = Join-Path $outDir "sdk.dll"
+          $spyDll = Join-Path $outDir "spy.dll"
+          
+          Write-Host "Looking for DLLs in $outDir"
+          Get-ChildItem $outDir -ErrorAction SilentlyContinue | Select-Object Name, Length
+          
+          if (-not (Test-Path $sdkDll)) {
+            # Try alternate output paths
+            $sdkDll = (Get-ChildItem -Recurse -Filter "sdk.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            $spyDll = (Get-ChildItem -Recurse -Filter "spy.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          }
+          
+          Write-Host "sdk.dll: $sdkDll"
+          Write-Host "spy.dll: $spyDll"
+          echo "SDK_DLL=$sdkDll" >> $env:GITHUB_OUTPUT
+          echo "SPY_DLL=$spyDll" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+
+      - name: Copy DLLs to release directory
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item "${{ steps.locate.outputs.SDK_DLL }}" release\sdk.dll
+          Copy-Item "${{ steps.locate.outputs.SPY_DLL }}" release\spy.dll
+          
+          # Compute SHA256
+          $sdkHash = (Get-FileHash release\sdk.dll -Algorithm SHA256).Hash.ToLower()
+          $spyHash = (Get-FileHash release\spy.dll -Algorithm SHA256).Hash.ToLower()
+          
+          "$sdkHash  sdk.dll" | Out-File -Encoding ASCII release\sdk.dll.sha256
+          "$spyHash  spy.dll" | Out-File -Encoding ASCII release\spy.dll.sha256
+          
+          # Print hashes for CI log
+          Write-Host "sdk.dll SHA256: $sdkHash"
+          Write-Host "spy.dll SHA256: $spyHash"
+          
+          # Write combined checksums file
+          "$sdkHash  sdk.dll`n$spyHash  spy.dll" | Out-File -Encoding ASCII release\checksums.sha256
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+
+      - name: Upload DLL artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechatferry-sdk-${{ github.sha }}
+          path: |
+            release/sdk.dll
+            release/spy.dll
+            release/checksums.sha256
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/sdk.dll
+            release/spy.dll
+            release/checksums.sha256
+          body: |
+            ## WeChatFerry SDK Release
+            
+            Built from [KeJunMao/WeChatFerry](https://github.com/KeJunMao/WeChatFerry) `${{ github.ref_name }}`.
+            
+            ### Files
+            - `sdk.dll` — WeChatFerry injector SDK
+            - `spy.dll` — WeChatFerry spy DLL (injected into WeChat)
+            - `checksums.sha256` — SHA256 checksums for verification
+            
+            ### Verify
+            ```bash
+            sha256sum -c checksums.sha256
+            ```
+          draft: false
+          prerelease: false
