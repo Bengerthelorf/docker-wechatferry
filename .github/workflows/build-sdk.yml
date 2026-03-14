@@ -64,8 +64,7 @@ jobs:
         shell: pwsh
         working-directory: ${{ github.workspace }}
 
-      - name: Patch vcxproj — disable pre-build protoc events
-        # Avoids double-run / failure of pre-build step during MSBuild
+      - name: Patch vcxproj — disable pre-build protoc events, fix toolset
         run: |
           $files = @(
             "WeChatFerry-src\WeChatFerry\spy\Spy.vcxproj",
@@ -74,8 +73,13 @@ jobs:
           foreach ($f in $files) {
             if (Test-Path $f) {
               $content = Get-Content $f -Raw
-              # Replace PreBuildEvent Command content with a no-op echo
+
+              # 1) Replace PreBuildEvent Command content with a no-op echo
               $content = $content -replace '(<Command>)[^<]*(protoc[^<]*)(</Command>)', '$1echo Protoc already done$3'
+
+              # 2) Upgrade PlatformToolset from v142 to v143 (VS 2022 on windows-latest)
+              $content = $content -replace '<PlatformToolset>v142</PlatformToolset>', '<PlatformToolset>v143</PlatformToolset>'
+
               Set-Content $f $content
               Write-Host "Patched $f"
             }
@@ -87,7 +91,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Tools\vcpkg
-          key: vcpkg-nng-magic-enum-x64-windows-static-${{ runner.os }}-v3
+          key: vcpkg-nng-magic-enum-x64-windows-static-${{ runner.os }}-v4
 
       - name: Install vcpkg and dependencies
         run: |
@@ -97,6 +101,19 @@ jobs:
             C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           }
           C:\Tools\vcpkg\vcpkg.exe install nng:x64-windows-static magic-enum:x64-windows-static spdlog:x64-windows-static minhook:x64-windows-static --recurse
+          C:\Tools\vcpkg\vcpkg.exe integrate install
+        shell: pwsh
+
+      - name: Verify vcpkg includes
+        run: |
+          $inc = "C:\Tools\vcpkg\installed\x64-windows-static\include"
+          Write-Host "=== vcpkg include directory ==="
+          Get-ChildItem $inc -ErrorAction SilentlyContinue | Select-Object Name
+          foreach ($h in @("magic_enum.hpp", "nng\nng.h", "spdlog\spdlog.h", "MinHook.h")) {
+            $p = Join-Path $inc $h
+            if (Test-Path $p) { Write-Host "OK: $h" }
+            else { Write-Host "MISSING: $h"; exit 1 }
+          }
         shell: pwsh
 
       - name: Set up MSBuild
@@ -104,13 +121,16 @@ jobs:
 
       - name: Build WeChatFerry (Release|x64)
         run: |
+          # /utf-8 is required by fmt (via spdlog) for Unicode support
+          $env:CL = "/utf-8"
           msbuild "WeChatFerry-src\WeChatFerry\WeChatFerry.sln" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:VcpkgRoot="C:\Tools\vcpkg" `
             /p:VCPKG_ROOT="C:\Tools\vcpkg" `
+            /p:VcpkgEnableManifest=false `
             /m `
-            /v:minimal
+            /v:normal
         shell: pwsh
         working-directory: ${{ github.workspace }}
 
