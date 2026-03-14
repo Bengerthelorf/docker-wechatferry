@@ -29,7 +29,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install grpcio-tools protobuf
+        # setuptools provides pkg_resources (needed by nanopb's protoc wrapper)
+        run: pip install grpcio-tools protobuf setuptools
         shell: pwsh
 
       # ── Generate protobuf files BEFORE MSBuild ────────────────────────────
