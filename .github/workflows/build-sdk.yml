@@ -77,8 +77,8 @@ jobs:
               # 1) Replace PreBuildEvent Command content with a no-op echo
               $content = $content -replace '(<Command>)[^<]*(protoc[^<]*)(</Command>)', '$1echo Protoc already done$3'
 
-              # 2) Upgrade PlatformToolset from v142 to v143 (VS 2022 on windows-latest)
-              $content = $content -replace '<PlatformToolset>v142</PlatformToolset>', '<PlatformToolset>v143</PlatformToolset>'
+              # 2) Keep PlatformToolset as v142 (Codec.lib is pre-built with v142, must match)
+              # v142 toolset is available on windows-latest runners
 
               # 3) Add magic_enum subfolder to include paths (newer vcpkg puts headers there)
               $content = $content -replace '(C:\\Tools\\vcpkg\\installed\\x64-windows-static\\include)', '$1;C:\Tools\vcpkg\installed\x64-windows-static\include\magic_enum'
