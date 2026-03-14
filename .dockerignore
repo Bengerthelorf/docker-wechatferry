@@ -1,5 +1,10 @@
 .git
 .github
 *.md
+wechatferry-sdk-*
 node_modules
-WeChatFerry-src
+app
+package.json
+package-lock.json
+__pycache__
+*.pyc

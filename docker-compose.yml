@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  wechatferry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    image: wechatferry:latest
+    container_name: wechatferry
+    platform: linux/amd64
+    privileged: true
+    ports:
+      - "127.0.0.1:10086:10086"  # WCF HTTP API
+      - "127.0.0.1:5901:5900"    # VNC (use 5901 to avoid conflict)
+      - "127.0.0.1:6081:6080"    # noVNC web
+    environment:
+      - NNG_PORT=10087
+      - WCF_PORT=10086
+      - WCF_HOST=0.0.0.0         # bind to 0.0.0.0 inside container (firewalled by port mapping)
+      - VNC_PORT=5900
+      - NOVNC_PORT=6080
+    volumes:
+      - wechat-data:/root/.wine/drive_c/users/root/Documents/WeChat Files
+    restart: unless-stopped
+    # Block WeChat update servers
+    extra_hosts:
+      - "dldir1.qq.com:127.0.0.1"
+      - "dldir1v6.qq.com:127.0.0.1"
+
+volumes:
+  wechat-data:

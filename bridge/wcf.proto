@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+package wcf;
+
+enum Functions {
+    FUNC_RESERVED         = 0x00;
+    FUNC_IS_LOGIN         = 0x01;
+    FUNC_GET_SELF_WXID    = 0x10;
+    FUNC_GET_MSG_TYPES    = 0x11;
+    FUNC_GET_CONTACTS     = 0x12;
+    FUNC_GET_DB_NAMES     = 0x13;
+    FUNC_GET_DB_TABLES    = 0x14;
+    FUNC_GET_USER_INFO    = 0x15;
+    FUNC_GET_AUDIO_MSG    = 0x16;
+    FUNC_SEND_TXT         = 0x20;
+    FUNC_SEND_IMG         = 0x21;
+    FUNC_SEND_FILE        = 0x22;
+    FUNC_SEND_XML         = 0x23;
+    FUNC_SEND_EMOTION     = 0x24;
+    FUNC_SEND_RICH_TXT    = 0x25;
+    FUNC_SEND_PAT_MSG     = 0x26;
+    FUNC_FORWARD_MSG      = 0x27;
+    FUNC_ENABLE_RECV_TXT  = 0x30;
+    FUNC_DISABLE_RECV_TXT = 0x40;
+    FUNC_EXEC_DB_QUERY    = 0x50;
+    FUNC_ACCEPT_FRIEND    = 0x51;
+    FUNC_RECV_TRANSFER    = 0x52;
+    FUNC_REFRESH_PYQ      = 0x53;
+    FUNC_DOWNLOAD_ATTACH  = 0x54;
+    FUNC_GET_CONTACT_INFO = 0x55;
+    FUNC_REVOKE_MSG       = 0x56;
+    FUNC_REFRESH_QRCODE   = 0x57;
+    FUNC_DECRYPT_IMAGE    = 0x60;
+    FUNC_EXEC_OCR         = 0x61;
+    FUNC_ADD_ROOM_MEMBERS = 0x70;
+    FUNC_DEL_ROOM_MEMBERS = 0x71;
+    FUNC_INV_ROOM_MEMBERS = 0x72;
+}
+
+message Request
+{
+    Functions func = 1;
+    oneof msg
+    {
+        Empty empty    = 2;
+        string str     = 3;
+        TextMsg txt    = 4;
+        PathMsg file   = 5;
+        DbQuery query  = 6;
+        Verification v = 7;
+        MemberMgmt m   = 8;
+        XmlMsg xml     = 9;
+        DecPath dec    = 10;
+        Transfer tf    = 11;
+        uint64 ui64    = 12;
+        bool flag      = 13;
+        AttachMsg att  = 14;
+        AudioMsg am    = 15;
+        RichText rt    = 16;
+        PatMsg pm      = 17;
+        ForwardMsg fm  = 18;
+    }
+}
+
+message Response
+{
+    Functions func = 1;
+    oneof msg
+    {
+        int32 status         = 2;
+        string str           = 3;
+        WxMsg wxmsg          = 4;
+        MsgTypes types       = 5;
+        RpcContacts contacts = 6;
+        DbNames dbs          = 7;
+        DbTables tables      = 8;
+        DbRows rows          = 9;
+        UserInfo ui          = 10;
+        OcrMsg ocr           = 11;
+    };
+}
+
+message Empty { }
+
+message WxMsg
+{
+    bool is_self   = 1;
+    bool is_group  = 2;
+    uint64 id      = 3;
+    uint32 type    = 4;
+    uint32 ts      = 5;
+    string roomid  = 6;
+    string content = 7;
+    string sender  = 8;
+    string sign    = 9;
+    string thumb   = 10;
+    string extra   = 11;
+    string xml     = 12;
+}
+
+message TextMsg
+{
+    string msg      = 1;
+    string receiver = 2;
+    string aters    = 3;
+}
+
+message PathMsg
+{
+    string path     = 1;
+    string receiver = 2;
+}
+
+message XmlMsg
+{
+    string receiver = 1;
+    string content  = 2;
+    string path     = 3;
+    int32 type      = 4;
+}
+
+message MsgTypes { map<int32, string> types = 1; }
+
+message RpcContact
+{
+    string wxid     = 1;
+    string code     = 2;
+    string remark   = 3;
+    string name     = 4;
+    string country  = 5;
+    string province = 6;
+    string city     = 7;
+    int32 gender    = 8;
+}
+message RpcContacts { repeated RpcContact contacts = 1; }
+
+message DbNames { repeated string names = 1; }
+
+message DbTable
+{
+    string name = 1;
+    string sql  = 2;
+}
+message DbTables { repeated DbTable tables = 1; }
+
+message DbQuery
+{
+    string db  = 1;
+    string sql = 2;
+}
+
+message DbField
+{
+    int32 type    = 1;
+    string column = 2;
+    bytes content = 3;
+}
+message DbRow { repeated DbField fields = 1; }
+message DbRows { repeated DbRow rows = 1; }
+
+message Verification
+{
+    string v3   = 1;
+    string v4   = 2;
+    int32 scene = 3;
+}
+
+message MemberMgmt
+{
+    string roomid = 1;
+    string wxids  = 2;
+}
+
+message UserInfo
+{
+    string wxid   = 1;
+    string name   = 2;
+    string mobile = 3;
+    string home   = 4;
+}
+
+message DecPath
+{
+    string src = 1;
+    string dst = 2;
+}
+
+message Transfer
+{
+    string wxid = 1;
+    string tfid = 2;
+    string taid = 3;
+}
+
+message AttachMsg
+{
+    uint64 id    = 1;
+    string thumb = 2;
+    string extra = 3;
+}
+
+message AudioMsg
+{
+    uint64 id  = 1;
+    string dir = 2;
+}
+
+message RichText
+{
+    string name     = 1;
+    string account  = 2;
+    string title    = 3;
+    string digest   = 4;
+    string url      = 5;
+    string thumburl = 6;
+    string receiver = 7;
+}
+
+message PatMsg
+{
+    string roomid = 1;
+    string wxid   = 2;
+}
+
+message OcrMsg
+{
+    int32 status  = 1;
+    string result = 2;
+}
+
+message ForwardMsg
+{
+    uint64 id       = 1;
+    string receiver = 2;
+}

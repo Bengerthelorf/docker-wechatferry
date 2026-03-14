@@ -1,0 +1,4 @@
+pynng>=0.8.0
+protobuf>=4.25.0
+flask>=3.0.0
+grpcio-tools>=1.60.0
