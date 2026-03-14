@@ -29,26 +29,35 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        # setuptools provides pkg_resources (needed by nanopb's protoc wrapper)
-        run: pip install grpcio-tools protobuf setuptools
+        run: pip install grpcio-tools protobuf setuptools nanopb
         shell: pwsh
 
       # ── Generate protobuf files BEFORE MSBuild ────────────────────────────
-      # nanopb's bundled protoc script uses grpcio-tools and needs the
-      # protoc-gen-nanopb plugin on PATH. We add the tool dir to PATH and
-      # run it explicitly, then patch the .vcxproj pre-build events so
-      # MSBuild doesn't re-run (and potentially fail) the step.
+      # Use nanopb's installed protoc-gen-nanopb directly with grpc_tools.protoc
+      # instead of the bundled wrapper script (which has pkg_resources issues).
       - name: Generate wcf.pb.c / wcf.pb.h (nanopb)
         run: |
-          $toolDir = "WeChatFerry-src\WeChatFerry\rpc\tool"
           $protoDir = "WeChatFerry-src\WeChatFerry\rpc\proto"
+          $toolDir = "WeChatFerry-src\WeChatFerry\rpc\tool"
 
-          # Add tool dir to PATH so protoc can find protoc-gen-nanopb.bat
-          $env:PATH = "$($PWD)\$toolDir;$env:PATH"
+          # Find nanopb's protoc-gen-nanopb plugin
+          $nanopbPlugin = python -c "import nanopb; import os; print(os.path.join(os.path.dirname(nanopb.__file__), 'generator', 'protoc-gen-nanopb.bat'))"
+          Write-Host "nanopb plugin: $nanopbPlugin"
 
+          # If that doesn't work, fall back to the bundled one
+          if (-not (Test-Path $nanopbPlugin)) {
+            $nanopbPlugin = "$($PWD)\$toolDir\protoc-gen-nanopb.bat"
+            Write-Host "Falling back to bundled plugin: $nanopbPlugin"
+          }
+
+          # Use grpc_tools.protoc directly (avoids the pkg_resources import chain)
           Push-Location $protoDir
-          # Run nanopb protoc: generates wcf.pb.c and wcf.pb.h
-          python "..\tool\protoc" "--nanopb_out=." wcf.proto
+          python -m grpc_tools.protoc `
+            "--plugin=protoc-gen-nanopb=$nanopbPlugin" `
+            "--nanopb_out=." `
+            "-I." `
+            wcf.proto
+
           Write-Host "Generated files:"
           Get-ChildItem . | Select-Object Name
           Pop-Location
